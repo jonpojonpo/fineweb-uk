@@ -1,0 +1,36 @@
+"""The five pilot decisions. Each is one question with a closed answer set."""
+# FineWeb-Edu's published scoring prompt (Penedo et al. 2024, arXiv:2406.17557, appendix).
+RUBRIC = ("Evaluate whether the page has a high educational value and could be useful in an educational setting for teaching from primary school to grade school levels using the additive 5-point scoring system described below. Points are accumulated based on the satisfaction of each criterion:\n"
+"- Add 1 point if the extract provides some basic information relevant to educational topics, even if it includes some irrelevant or non-academic content like advertisements and promotional material.\n"
+"- Add another point if the extract addresses certain elements pertinent to education but does not align closely with educational standards. It might mix educational content with non-educational material, offering a superficial overview of potentially useful topics, or presenting information in a disorganized manner and incoherent writing style.\n"
+"- Award a third point if the extract is appropriate for educational use and introduces key concepts relevant to school curricula. It is coherent though it may not be comprehensive or could include some extraneous information. It may resemble an introductory section of a textbook or a basic tutorial that is suitable for learning but has notable limitations like treating concepts that are too complex for grade school students.\n"
+"- Grant a fourth point if the extract highly relevant and beneficial for educational purposes for a level not higher than grade school, exhibiting a clear and consistent writing style. It could be similar to a chapter from a textbook or a tutorial, offering substantial educational content, including exercises and solutions, with minimal irrelevant information, and the concepts aren't too advanced for grade school students. The content is coherent, focused, and valuable for structured learning.\n"
+"- Bestow a fifth point if the extract is outstanding in its educational value, perfectly suited for teaching either at primary school or grade school. It follows detailed reasoning, the writing style is easy to follow and offers profound and thorough insights into the subject matter, devoid of any non-educational or complex content.\n"
+"Give the total score; a page meeting no criterion scores 0.")
+Q = {
+ "quality": {"prompt": RUBRIC,
+   "options": {str(i): str(i) for i in range(6)}, "ordinal": True},
+ "uk_relevance": {"prompt": "How does this text relate to the United Kingdom?",
+   "options": {"uk_specific": "specifically about the UK, its institutions, places, law or culture",
+               "uk_compatible": "not about the UK, but written for or consistent with a British reader",
+               "non_uk": "about or written for somewhere else, and not useful to a British reader"}},
+ "genre": {"prompt": "What is the genre of this text?",
+   "options": {k: k for k in ["news","legal","government","forum","commercial","academic","creative","other"]}},
+ "spam_or_boilerplate": {"prompt": "Is this text mostly spam, SEO filler, or site boilerplate?", "options": {"yes":"yes","no":"no"}},
+ "pii_risk": {"prompt": "Does this text expose personal data about a private individual, such as a home address, phone number or private email?", "options": {"yes":"yes","no":"no"}},
+}
+LETTERS = "ABCDEFGH"
+
+def render(q, doc, reverse=False, max_chars=6000):
+    """Returns (prompt, {answer_token: option}). Quality answers are digits; the rest are letters."""
+    keys = list(q["options"])
+    if q.get("ordinal"):
+        ans = {k: k for k in keys}
+        lines = ""
+        tail = "Answer with a single digit, 0 to 5."
+    else:
+        if reverse: keys = keys[::-1]
+        ans = {LETTERS[i]: k for i, k in enumerate(keys)}
+        lines = "\n".join(f"{l}. {k}: {q['options'][k]}" if q['options'][k] != k else f"{l}. {k}" for l, k in ans.items()) + "\n"
+        tail = "Answer with a single letter."
+    return f"<document>\n{doc[:max_chars]}\n</document>\n\n{q['prompt']}\n{lines}{tail}", ans
