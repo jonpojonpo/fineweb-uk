@@ -34,3 +34,15 @@ def render(q, doc, reverse=False, max_chars=6000):
         lines = "\n".join(f"{l}. {k}: {q['options'][k]}" if q['options'][k] != k else f"{l}. {k}" for l, k in ans.items()) + "\n"
         tail = "Answer with a single letter."
     return f"<document>\n{doc[:max_chars]}\n</document>\n\n{q['prompt']}\n{lines}{tail}", ans
+
+# Croydon: how much a document tells a model about the UK. FineWeb-Edu-style 0-5 scale; the score kept is the
+# probability-weighted average, so it ranks finely (e.g. 3.47) while staying comparable to the Edu axis.
+CROYDON_RUBRIC = """Rate how much this page would teach a language model about the United Kingdom, from 0 to 5:
+0: It is about or written for another country, so a British reader would need to adapt it (for example US tax advice or a local US news story).
+1: Neutral or global content with no particular UK framing (for example maths, physics, or the history of ancient Egypt).
+2: Suited to a British reader, through British spelling, units, prices or context, but not about the UK itself.
+3: Partly about the UK, or mentions UK places, institutions, laws or people along the way.
+4: Mainly about the UK: its law, government, public services, places, history, culture, sport or current affairs.
+5: Rich, specific and accurate UK knowledge that a British model should know, explained in depth (for example how council tax works, the history of the NHS, or a detailed account of a British historical event).
+Judge the substance, not the website's address."""
+CROYDON = {"prompt": CROYDON_RUBRIC, "options": {str(i): str(i) for i in range(6)}, "ordinal": True}

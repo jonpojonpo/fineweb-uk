@@ -4,6 +4,21 @@ Tools and task sets for testing whether UK-tuned filtering of web text trains be
 
 **This repo contains no web page text.** It has code, pinned source versions, and task lists of document IDs and hashes. Scripts fetch the text from the source dataset onto your own machine.
 
+## Croydon
+
+[Croydon](https://huggingface.co/jonpojonpo/croydon-v0) scores how much a page would teach a model about the UK, from 0 to 5, on the same scale as FineWeb-Edu's educational score. It's a ModernBERT distilled from Qwen3.8-27B. It matches the teacher with a rank correlation of 0.965 on held-out pages, but hasn't been checked against human judgement yet. The scripts that built it are in `distill/`.
+
+## Join the swarm
+
+Volunteers score FineWeb-Edu's `sample/100BT` with Croydon on their own machines. Each unit is checked by two volunteers on different networks, and a public page shows progress and a leaderboard. You'll need an invite code from the FineWeb-UK Discord.
+
+```bash
+pip install -r requirements.txt torch "transformers>=5.10" safetensors
+python swarm/worker.py --server COORDINATOR_URL --name your-pseudonym --invite CODE --croydon jonpojonpo/croydon-v0
+```
+
+The worker downloads public FineWeb-Edu text from Hugging Face, scores it locally, and sends back only document IDs, text hashes and scores. Stop at any time with Ctrl+C. Run with `--status` to see your contributions. See [swarm/README.md](swarm/README.md) for details.
+
 ## Label documents
 
 You need Python 3.10+ and about 2 GB of disk space.

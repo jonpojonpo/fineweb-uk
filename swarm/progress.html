@@ -1,0 +1,45 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Croydon swarm</title>
+<style>
+:root{color-scheme:light dark;--bg:#f5f5f1;--panel:#fff;--ink:#1b1b19;--muted:#66665e;--line:#dadad2;--accent:#0b5cad;--done:#1f7a4d;--track:#e7e7e0}
+@media(prefers-color-scheme:dark){:root{--bg:#141413;--panel:#1f1f1d;--ink:#ecece6;--muted:#a2a29a;--line:#363632;--accent:#6db1f2;--done:#4cc38a;--track:#2b2b28}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif}
+main{max-width:1100px;margin:auto;padding:24px 16px 48px}h1{font-size:24px;margin:0 0 4px}h2{font-size:16px;margin:0 0 10px}
+.sub{color:var(--muted);margin:0 0 20px}.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+.bar{height:14px;background:var(--track);border-radius:7px;overflow:hidden}.bar i{display:block;height:100%;background:var(--done);width:0;transition:width .6s}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:14px}.tile b{display:block;font-size:22px;font-variant-numeric:tabular-nums}.tile span{color:var(--muted);font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(20px,1fr));gap:3px}.grid div{aspect-ratio:1;border-radius:3px;background:var(--track);position:relative}
+.grid div i{position:absolute;inset:auto 0 0 0;background:var(--done);border-radius:3px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}th{font-size:13px;color:var(--muted);font-weight:600}
+td.n,th.n{text-align:right}tr.me td{background:color-mix(in srgb,var(--accent) 14%,transparent);font-weight:600}
+.find{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}input{font:inherit;padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);min-width:0;flex:1;max-width:280px}
+.you{color:var(--muted);font-size:14px;min-height:1.4em}.cols{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:16px}@media(max-width:800px){.cols{grid-template-columns:minmax(0,1fr)}}
+.table-wrap{overflow-x:auto}#recent td{white-space:nowrap}#recent td small{color:var(--muted);display:block;font-size:12.5px}@media(max-width:480px){th,td{padding:6px 5px}}.legend{color:var(--muted);font-size:13px;margin-top:8px}
+</style></head><body><main>
+<h1>Croydon swarm</h1><p class="sub">Volunteers scoring how British the web is, for FineWeb-UK. Every unit is checked by two different volunteers. Updates every 30 seconds.</p>
+<section class="card"><h2>Overall progress</h2><div class="bar" role="progressbar" aria-label="Units confirmed" id="bar"><i></i></div>
+<div class="tiles"><div class="tile"><b id="pct">–</b><span>of units confirmed</span></div><div class="tile"><b id="units">–</b><span>units confirmed</span></div>
+<div class="tile"><b id="docs">–</b><span>documents scored</span></div><div class="tile"><b id="vols">–</b><span>volunteers</span></div>
+<div class="tile"><b id="active">–</b><span>active in the last hour</span></div><div class="tile"><b id="rate">–</b><span>units confirmed in the last hour</span></div></div></section>
+<div class="cols"><section class="card"><h2>Leaderboard</h2>
+<div class="find"><input id="name" placeholder="Your pseudonym" aria-label="Your pseudonym" autocomplete="off"></div><div class="you" id="you"></div>
+<div class="table-wrap"><table><thead><tr><th>#</th><th>Volunteer</th><th class="n">Units</th><th class="n">Documents</th><th class="n">Awaiting check</th></tr></thead><tbody id="board"></tbody></table></div></section>
+<section class="card"><h2>Recent work</h2><div class="table-wrap"><table><tbody id="recent"></tbody></table></div></section></div>
+<section class="card"><h2>Shards</h2><div class="grid" id="shards"></div><p class="legend">One square per file of the 100BT sample. The green fill shows how much of it is confirmed.</p></section>
+</main><script>
+const $=s=>document.querySelector(s),fmt=n=>n.toLocaleString('en-GB');let S;
+const ago=t=>{const s=Math.max(0,Date.now()/1000-t);return s<90?Math.round(s)+'s ago':s<5400?Math.round(s/60)+' min ago':Math.round(s/3600)+' h ago'};
+function cell(tr,text,cls){const td=document.createElement('td');td.textContent=text;if(cls)td.className=cls;tr.append(td)}
+function draw(){if(!S)return;const done=S.units.agreed||0,p=S.total_units?100*done/S.total_units:0;
+ $('#bar i').style.width=p+'%';$('#bar').setAttribute('aria-valuenow',p.toFixed(1));$('#pct').textContent=p.toFixed(1)+'%';$('#units').textContent=fmt(done)+' / '+fmt(S.total_units);
+ $('#docs').textContent=fmt(S.agreed_docs);$('#vols').textContent=fmt(S.volunteers);$('#active').textContent=fmt(S.active_last_hour);$('#rate').textContent=fmt(S.units_last_hour);
+ const me=($('#name').value||'').trim().toLowerCase();try{localStorage.setItem('croydon-name',me)}catch(e){}
+ const b=$('#board');b.textContent='';S.leaderboard.forEach((r,i)=>{const tr=document.createElement('tr');if(me&&r.name===me)tr.className='me';cell(tr,i+1);cell(tr,r.name);cell(tr,fmt(r.accepted),'n');cell(tr,fmt(r.docs),'n');cell(tr,fmt(r.pending),'n');b.append(tr)});
+ const i=S.leaderboard.findIndex(r=>r.name===me),r=S.leaderboard[i];
+ $('#you').textContent=!me?'Enter your pseudonym to highlight your row.':r?`You're #${i+1}: ${fmt(r.accepted)} units confirmed, ${fmt(r.docs)} documents, ${fmt(r.pending)} awaiting a second volunteer.`:'No volunteer with that name in the top 100 yet. Run the worker with --status to see your own numbers.';
+ const rc=$('#recent');rc.textContent='';S.recent.forEach(x=>{const tr=document.createElement('tr'),td=document.createElement('td'),sm=document.createElement('small');td.textContent=x.name;sm.textContent=`unit ${x.unit} · ${fmt(x.docs||0)} docs`;td.append(sm);tr.append(td);cell(tr,ago(x.at),'n');rc.append(tr)});
+ if(!S.recent.length){const tr=document.createElement('tr');cell(tr,'No work submitted yet.');rc.append(tr)}
+ const g=$('#shards');g.textContent='';S.shards.forEach(x=>{const d=document.createElement('div'),f=document.createElement('i');f.style.height=(100*x.agreed/x.total)+'%';d.append(f);d.title=`${x.shard}: ${x.agreed} of ${x.total} units confirmed`;d.setAttribute('aria-label',d.title);g.append(d)})}
+async function load(){try{S=await (await fetch('stats',{cache:'no-store'})).json();draw()}catch(e){$('#you').textContent='Could not reach the coordinator; retrying.'}}
+try{$('#name').value=localStorage.getItem('croydon-name')||''}catch(e){}$('#name').addEventListener('input',draw);load();setInterval(load,30000);
+</script></body></html>
