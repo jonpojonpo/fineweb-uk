@@ -46,3 +46,11 @@ CROYDON_RUBRIC = """Rate how much this page would teach a language model about t
 5: Rich, specific and accurate UK knowledge that a British model should know, explained in depth (for example how council tax works, the history of the NHS, or a detailed account of a British historical event).
 Judge the substance, not the website's address."""
 CROYDON = {"prompt": CROYDON_RUBRIC, "options": {str(i): str(i) for i in range(6)}, "ordinal": True}
+
+# Hand-check question sets for label_tool.py. "croydon" asks for a person's own Croydon score and whether to keep the page.
+CHECK_SETS = {
+    "croydon": {
+        "croydon": {"prompt": "How much would this page teach a model about the UK? (0 to 5, same scale as Croydon)", "options": {str(i): str(i) for i in range(6)}, "ordinal": True},
+        "keep": {"prompt": "Would you want this page in a UK model's training data?", "options": {"yes": "yes", "maybe": "maybe", "no": "no"}},
+    },
+}

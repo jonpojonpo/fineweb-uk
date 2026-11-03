@@ -3,16 +3,21 @@
   python label_tool.py --annotator your-pseudonym [--tasks tasks/shared_300.jsonl]
 """
 import argparse, datetime, hashlib, http.server, json, os, re, webbrowser
-from questions import Q, RUBRIC
+import sys
+from questions import Q, RUBRIC, CROYDON_RUBRIC, CHECK_SETS
+QSET = next((sys.argv[i + 1] for i, v in enumerate(sys.argv) if v == "--questions" and i + 1 < len(sys.argv)), "pilot")
+if QSET != "pilot": Q = CHECK_SETS[QSET]; RUBRIC = CROYDON_RUBRIC
 GUIDE_VERSION = "0.1"; MAX_CHARS = 6000
 HELP = {
+ "croydon": "0 another country, 1 neutral or global, 2 suits a British reader, 3 partly about the UK, 4 mainly about the UK, 5 rich UK knowledge in depth.",
+ "keep": "Is it worth a model learning from? Thin listings, adverts and junk are a no, whatever their topic.",
  "quality": "Add one point per criterion met. See LABELLING.md.",
  "uk_relevance": "Judge the text only. Would it be out of place for a British reader?",
  "genre": "What kind of text is this, whoever published it?",
  "spam_or_boilerplate": "Mostly SEO filler, link lists, menus or templates?",
  "pii_risk": "Could a private person be identified and contacted or harmed? Public officials acting in their role don't count.",
 }
-SCHEMA = [{"name": n, "prompt": {"quality": "Educational quality (0 to 5 points)"}.get(n, q["prompt"]), "help": HELP[n],
+SCHEMA = [{"name": n, "prompt": {"quality": "Educational quality (0 to 5 points)"}.get(n, q["prompt"]), "help": HELP.get(n, ""),
            "options": [{"value": k, "label": k.replace("_", " ")} for k in q["options"]]} for n, q in Q.items()]
 VALID = {n: set(q["options"]) for n, q in Q.items()}
 
@@ -75,7 +80,7 @@ def handler(store):
     return H
 
 if __name__ == "__main__":
-    a = argparse.ArgumentParser(); a.add_argument("--annotator", required=True); a.add_argument("--tasks", default="tasks/shared_300.jsonl"); a.add_argument("--port", type=int, default=8765); a.add_argument("--no-browser", action="store_true")
+    a = argparse.ArgumentParser(); a.add_argument("--annotator", required=True); a.add_argument("--tasks", default="tasks/shared_300.jsonl"); a.add_argument("--port", type=int, default=8765); a.add_argument("--no-browser", action="store_true"); a.add_argument("--questions", default="pilot", choices=["pilot", *CHECK_SETS])
     x = a.parse_args()
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,30}", x.annotator): raise SystemExit("--annotator must be a pseudonym: lowercase letters, digits and hyphens")
     st = Store(x.tasks, x.annotator)

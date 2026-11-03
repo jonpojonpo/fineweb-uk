@@ -25,20 +25,20 @@ const api=(p,b)=>fetch(p,b?{method:'POST',headers:{'Content-Type':'application/j
 function el(t,c,x){const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
 function render(){const side=$('#side');side.textContent='';
  S.schema.forEach((q,qi)=>{const box=el('section','q'+(qi===active?' active':''));box.append(el('h2','',`${qi+1}. ${q.prompt}`),el('p','',q.help));
-  const row=el('div','opts');q.options.forEach((o,oi)=>{const b=el('button',ans[q.name]===o.value?'sel':'');if(q.name!=='quality')b.append(el('kbd','',oi+1));b.append(o.label);b.onclick=()=>pick(qi,o.value);row.append(b)});
+  const row=el('div','opts');q.options.forEach((o,oi)=>{const b=el('button',ans[q.name]===o.value?'sel':'');if(!['quality','croydon'].includes(q.name))b.append(el('kbd','',oi+1));b.append(o.label);b.onclick=()=>pick(qi,o.value);row.append(b)});
   box.append(row);box.onclick=e=>{if(e.target===box||e.target.tagName==='H2'){active=qi;render()}};side.append(box)});
  const nav=el('div','nav');const back=el('button','','Back');back.onclick=()=>go(cur-1);back.disabled=cur===0;
  const next=el('button','','Save and next (Enter)');next.id='next';next.disabled=!S.schema.every(q=>ans[q.name]);next.onclick=save;
  const sk=el('select');sk.setAttribute('aria-label','Skip this document');[['','Skip…'],['unclear','Too unclear to judge'],['upsetting','Upsetting content'],['not_english','Not English']].forEach(([v,t])=>{const o=el('option','',t);o.value=v;sk.append(o)});sk.onchange=()=>sk.value&&send({skip:sk.value});
  nav.append(back,next,sk);side.append(nav,el('div','',''));side.lastChild.id='err';
- const d=el('details');d.append(el('summary','','Quality rubric and shortcuts'),el('pre','',S.rubric+'\n\nKeys: number picks an answer for the highlighted question and moves on. Tab or J/K changes question. Enter saves. Left arrow goes back.'));side.append(d)}
+ const d=el('details');d.append(el('summary','','Scoring guide and shortcuts'),el('pre','',S.rubric+'\n\nKeys: number picks an answer for the highlighted question and moves on. Tab or J/K changes question. Enter saves. Left arrow goes back.'));side.append(d)}
 function pick(qi,v){ans[S.schema[qi].name]=v;active=Math.min(qi+1,S.schema.length-1);render()}
 async function go(i){if(i<0||i>=S.total)return;const d=await api('/api/doc/'+i);cur=i;ans=d.labels?{...d.labels}:{};active=0;const a=$('#doc');a.textContent=d.text;if(d.cut)a.append(el('span','','Cut at 6,000 characters, the same as the models see. Label only what is shown.'));if(d.cut)a.lastChild.id='cut';a.scrollTop=0;
  $('#count').textContent=`Document ${i+1} of ${S.total} · ${done} saved`;$('#bar').max=S.total;$('#bar').value=done;render()}
 async function send(b){try{const r=await api('/api/label',{i:cur,...b});done=r.done;if(cur+1<S.total)await go(cur+1);else{await go(cur);$('#doc').textContent=`Thank you, ${done} of ${S.total} saved. See CONTRIBUTING.md to submit your labels file.`}}catch(e){$('#err').textContent=e.message}}
 function save(){if(S.schema.every(q=>ans[q.name]))send({labels:ans})}
 addEventListener('keydown',e=>{if(e.target.tagName==='SELECT'||e.metaKey||e.ctrlKey||e.altKey)return;const q=S.schema[active];
- if(/^[0-9]$/.test(e.key)){const n=+e.key;const o=q.options[q.name==='quality'?n:n-1];if(o){pick(active,o.value);e.preventDefault()}}
+ if(/^[0-9]$/.test(e.key)){const n=+e.key;const o=q.options[['quality','croydon'].includes(q.name)?n:n-1];if(o){pick(active,o.value);e.preventDefault()}}
  else if(e.key==='Enter'&&e.target.tagName!=='BUTTON'){save();e.preventDefault()}else if(e.key==='ArrowLeft')go(cur-1);
  else if(e.key==='Tab'||e.key==='j'||e.key==='k'){active=(active+(e.key==='k'||e.shiftKey?-1:1)+S.schema.length)%S.schema.length;render();e.preventDefault()}});
 api('/api/state').then(s=>{S=s;done=s.done;$('#who').textContent=`${s.annotator} · ${s.set}`;go(s.start)});
