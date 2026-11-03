@@ -105,18 +105,21 @@ class Coord:
         q = lambda sql, *a: s.db.execute(sql, a).fetchall()
         units = dict(q("select state, count(*) from wu group by state")); total = sum(units.values())
         docs = q("select coalesce(sum(docs), 0) from wu where state='agreed'")[0][0]
+        waiting = q("select count(distinct a.wu) from assign a join wu w on w.id=a.wu where a.submitted is not null and w.state='open'")[0][0]
+        submitted_docs = q("select coalesce(sum(docs), 0) from assign where submitted is not null")[0][0]
         shards = [{"shard": sh.split("/")[-1].removesuffix(".parquet"), "agreed": ag, "total": n}
                   for sh, ag, n in q("select shard, sum(state='agreed'), count(*) from wu group by shard order by shard")]
         board = [dict(zip(("name", "accepted", "docs", "pending", "rejected", "joined"), r)) for r in q("""
             select v.name, v.accepted, coalesce((select sum(a.docs) from assign a join wu w on w.id=a.wu where a.volunteer=v.id and w.state='agreed'), 0),
                    (select count(*) from assign a join wu w on w.id=a.wu where a.volunteer=v.id and a.submitted is not null and w.state='open'),
-                   v.rejected, v.joined from volunteer v order by v.accepted desc, v.joined limit 100""")]
+                   v.rejected, v.joined from volunteer v
+            order by v.accepted desc, (select count(*) from assign a where a.volunteer=v.id and a.submitted is not null) desc, v.joined limit 100""")]
         active = q("select count(distinct volunteer) from assign where submitted > ? or (submitted is null and lease > ?)", now - 3600, now)[0][0]
         hour = q("select count(*) from wu where agreed_at > ?", now - 3600)[0][0]
         recent = [dict(zip(("name", "unit", "docs", "at"), r)) for r in q("""
             select v.name, a.wu, a.docs, a.submitted from assign a join volunteer v on v.id=a.volunteer
             where a.submitted is not null order by a.submitted desc limit 12""")]
-        out = {"units": units, "total_units": total, "agreed_docs": docs, "volunteers": q("select count(*) from volunteer")[0][0],
+        out = {"units": units, "total_units": total, "agreed_docs": docs, "units_waiting": waiting, "submitted_docs": submitted_docs, "volunteers": q("select count(*) from volunteer")[0][0],
                "active_last_hour": active, "units_last_hour": hour, "shards": shards, "leaderboard": board, "recent": recent, "generated": now}
         s._cache = (now, out); return out
     def me(s, tok):
@@ -125,7 +128,9 @@ class Coord:
         name, acc, rej = s.db.execute("select name, accepted, rejected from volunteer where id=?", (v,)).fetchone()
         docs = s.db.execute("select coalesce(sum(a.docs), 0) from assign a join wu w on w.id=a.wu where a.volunteer=? and w.state='agreed'", (v,)).fetchone()[0]
         pending = s.db.execute("select count(*) from assign a join wu w on w.id=a.wu where a.volunteer=? and a.submitted is not null and w.state='open'", (v,)).fetchone()[0]
-        rank = s.db.execute("select count(*) + 1 from volunteer where accepted > ?", (acc,)).fetchone()[0]
+        subs = lambda who: f"(select count(*) from assign a where a.volunteer={who} and a.submitted is not null)"
+        mine = s.db.execute(f"select {subs('?')}", (v,)).fetchone()[0]
+        rank = s.db.execute(f"select count(*) + 1 from volunteer v where v.accepted > ? or (v.accepted = ? and {subs('v.id')} > ?)", (acc, acc, mine)).fetchone()[0]
         return {"name": name, "accepted": acc, "docs": docs, "pending": pending, "rejected": rej, "rank": rank, "volunteers": s.db.execute("select count(*) from volunteer").fetchone()[0]}
 
 PAGE = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "progress.html")).read()

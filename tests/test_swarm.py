@@ -68,6 +68,10 @@ class T(unittest.TestCase):
         me = s.c.me(s.t[0]); s.assertEqual((me["accepted"], me["docs"], me["pending"], me["rank"]), (1, 3, 0, 1))
         s.assertEqual(s.c.me(s.t[4])["rank"], 3)
         with s.assertRaises(PermissionError): s.c.me("forged")
+        s.c.db.execute("insert into wu(kind, shard, rg_start, rg_end) values('croydon','sample/100BT/000_00000.parquet',50,100)"); s.c.commit = None; s.c.db.commit()
+        u2 = s.c.claim(s.t[1], ["croydon"], ip="81.2.69.2"); s.c.submit(s.t[1], u2["wu"], rows())  # v1x: same confirmed units, more submitted
+        st = s.c.stats(now=2e12); s.assertEqual(st["leaderboard"][0]["name"], "v1x"); s.assertEqual(st["units_waiting"], 1); s.assertEqual(st["submitted_docs"], 9)
+        s.assertEqual(s.c.me(s.t[1])["rank"], 1); s.assertEqual(s.c.me(s.t[0])["rank"], 2)
     def test_invite(s):
         os.environ["SWARM_INVITE"] = "abc"
         try:
