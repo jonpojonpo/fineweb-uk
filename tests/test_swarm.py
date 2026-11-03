@@ -72,6 +72,18 @@ class T(unittest.TestCase):
         u2 = s.c.claim(s.t[1], ["croydon"], ip="81.2.69.2"); s.c.submit(s.t[1], u2["wu"], rows())  # v1x: same confirmed units, more submitted
         st = s.c.stats(now=2e12); s.assertEqual(st["leaderboard"][0]["name"], "v1x"); s.assertEqual(st["units_waiting"], 1); s.assertEqual(st["submitted_docs"], 9)
         s.assertEqual(s.c.me(s.t[1])["rank"], 1); s.assertEqual(s.c.me(s.t[0])["rank"], 2)
+    def test_trusted_machine(s):
+        for i in range(2, 41): s.c.db.execute("insert into wu(kind, shard, rg_start, rg_end) values('croydon','sample/100BT/000_00000.parquet',?,?)", (i * 50, i * 50 + 50))
+        s.c.db.commit(); got = []
+        for _ in range(40):
+            u = s.c.claim(s.t[0], ["croydon"], ip="81.2.69.1"); got.append((u["wu"], s.c.submit(s.t[0], u["wu"], rows())))
+        s.assertTrue(all(st == "waiting" for _, st in got))  # not trusted yet
+        r = s.c.trust("v0x"); s.assertEqual(r["settled"] + r["held_for_audit"], 40); s.assertGreater(r["settled"], 30)
+        held = [w for w, _ in got if s.c.audited(w)]; s.assertEqual(len(held), r["held_for_audit"])
+        if held:  # an independent volunteer confirms an audited unit
+            u = s.c.claim(s.t[1], ["croydon"], ip="81.2.69.2"); s.assertIn(u["wu"], held); s.assertEqual(s.c.submit(s.t[1], u["wu"], rows()), "agreed")
+        st = s.c.stats(now=3e12); s.assertTrue(st["leaderboard"][0]["trusted"]); s.assertEqual(st["via"]["trusted"], r["settled"])
+        with s.assertRaises(ValueError): s.c.trust("nobody")
     def test_invite(s):
         os.environ["SWARM_INVITE"] = "abc"
         try:

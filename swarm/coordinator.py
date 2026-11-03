@@ -14,7 +14,9 @@ create table if not exists wu(id integer primary key, kind text, shard text, rg_
 create table if not exists volunteer(id integer primary key, name text unique, token_hash text, accepted int default 0, rejected int default 0, joined real);
 create table if not exists assign(wu int, volunteer int, lease real, submitted real, path text, primary key(wu, volunteer));
 """
-MIGRATIONS = ["alter table assign add column docs int", "alter table wu add column docs int", "alter table wu add column agreed_at real", "alter table assign add column net text"]
+MIGRATIONS = ["alter table assign add column docs int", "alter table wu add column docs int", "alter table wu add column agreed_at real", "alter table assign add column net text",
+              "alter table volunteer add column trusted int default 0", "alter table wu add column via text"]
+AUDIT_PCT = 5  # share of a trusted machine's units still sent to an independent volunteer
 H = lambda t: hashlib.sha256(t.encode()).hexdigest()
 
 class Coord:
@@ -36,6 +38,19 @@ class Coord:
             key = str(ipaddress.ip_network(f"{a}/64", strict=False)) if a.version == 6 else str(a)
         except ValueError: key = "unknown"
         return hmac.new(s.salt, key.encode(), hashlib.sha256).hexdigest()[:32]
+    def trusted(s, v):
+        return bool(s.db.execute("select trusted from volunteer where id=?", (v,)).fetchone()[0])
+    def audited(s, wu):
+        """Whether a unit is in the hidden sample re-checked by a second volunteer. Keyed by the secret salt, so nobody can predict it."""
+        return int(hmac.new(s.salt, f"audit:{wu}".encode(), hashlib.sha256).hexdigest()[:8], 16) % 100 < AUDIT_PCT
+    def trust(s, name):
+        """Mark a volunteer as the operator's trusted machine, and settle any units it's waiting on."""
+        with s.lock:
+            if not s.db.execute("update volunteer set trusted=1 where name=?", (name,)).rowcount: raise ValueError("no such volunteer")
+            s.db.commit(); v = s.db.execute("select id from volunteer where name=?", (name,)).fetchone()[0]
+            waiting = [r[0] for r in s.db.execute("select a.wu from assign a join wu w on w.id=a.wu where a.volunteer=? and a.submitted is not null and w.state='open'", (v,))]
+            done = [s._check(u) for u in waiting]
+        return {"settled": done.count("agreed"), "held_for_audit": done.count("waiting")}
     def register(s, name, invite=None):
         need = os.environ.get("SWARM_INVITE")
         if need and invite != need: raise PermissionError("invite code required")
@@ -83,6 +98,12 @@ class Coord:
         kind, state, rounds = s.db.execute("select kind, state, rounds from wu where id=?", (wu,)).fetchone()
         if state != "open": return state
         subs = s.db.execute("select volunteer, path from assign where wu=? and submitted is not null order by submitted", (wu,)).fetchall()
+        if len(subs) == 1 and rounds == 0 and s.trusted(subs[0][0]) and not s.audited(wu):
+            # The operator's own machine: accept after one run, apart from a hidden random sample.
+            rows = json.load(gzip.open(subs[0][1], "rt"))
+            with gzip.open(os.path.join(s.dir, "agreed", f"{wu}.json.gz"), "wt") as f: json.dump(rows, f)
+            s.db.execute("update wu set state='agreed', docs=?, agreed_at=?, via='trusted' where id=?", (len(rows), time.time(), wu))
+            s.db.execute("update volunteer set accepted=accepted+1 where id=?", (subs[0][0],)); s.db.commit(); return "agreed"
         if len(subs) < s.q: return "waiting"
         loaded = [(v, json.load(gzip.open(p, "rt"))) for v, p in subs]; lo, hi = THRESH[kind]
         for i in range(len(loaded)):
@@ -90,7 +111,7 @@ class Coord:
                 agree, tv = compare(loaded[i][1], loaded[j][1])
                 if agree >= lo and tv <= hi:
                     with gzip.open(os.path.join(s.dir, "agreed", f"{wu}.json.gz"), "wt") as f: json.dump(loaded[i][1], f)
-                    s.db.execute("update wu set state='agreed', docs=?, agreed_at=? where id=?", (len(loaded[i][1]), time.time(), wu))
+                    s.db.execute("update wu set state='agreed', docs=?, agreed_at=?, via='quorum' where id=?", (len(loaded[i][1]), time.time(), wu))
                     for v, _ in loaded:
                         ok = v in (loaded[i][0], loaded[j][0])
                         s.db.execute(f"update volunteer set {'accepted' if ok else 'rejected'}={'accepted' if ok else 'rejected'}+1 where id=?", (v,))
@@ -109,17 +130,18 @@ class Coord:
         submitted_docs = q("select coalesce(sum(docs), 0) from assign where submitted is not null")[0][0]
         shards = [{"shard": sh.split("/")[-1].removesuffix(".parquet"), "agreed": ag, "total": n}
                   for sh, ag, n in q("select shard, sum(state='agreed'), count(*) from wu group by shard order by shard")]
-        board = [dict(zip(("name", "accepted", "docs", "pending", "rejected", "joined"), r)) for r in q("""
+        board = [dict(zip(("name", "accepted", "docs", "pending", "rejected", "joined", "trusted"), r)) for r in q("""
             select v.name, v.accepted, coalesce((select sum(a.docs) from assign a join wu w on w.id=a.wu where a.volunteer=v.id and w.state='agreed'), 0),
                    (select count(*) from assign a join wu w on w.id=a.wu where a.volunteer=v.id and a.submitted is not null and w.state='open'),
-                   v.rejected, v.joined from volunteer v
+                   v.rejected, v.joined, coalesce(v.trusted, 0) from volunteer v
             order by v.accepted desc, (select count(*) from assign a where a.volunteer=v.id and a.submitted is not null) desc, v.joined limit 100""")]
         active = q("select count(distinct volunteer) from assign where submitted > ? or (submitted is null and lease > ?)", now - 3600, now)[0][0]
         hour = q("select count(*) from wu where agreed_at > ?", now - 3600)[0][0]
         recent = [dict(zip(("name", "unit", "docs", "at"), r)) for r in q("""
             select v.name, a.wu, a.docs, a.submitted from assign a join volunteer v on v.id=a.volunteer
             where a.submitted is not null order by a.submitted desc limit 12""")]
-        out = {"units": units, "total_units": total, "agreed_docs": docs, "units_waiting": waiting, "submitted_docs": submitted_docs, "volunteers": q("select count(*) from volunteer")[0][0],
+        out = {"units": units, "total_units": total, "agreed_docs": docs, "units_waiting": waiting, "submitted_docs": submitted_docs, "audit_pct": AUDIT_PCT,
+               "via": dict(q("select coalesce(via, 'quorum'), count(*) from wu where state='agreed' group by 1")), "volunteers": q("select count(*) from volunteer")[0][0],
                "active_last_hour": active, "units_last_hour": hour, "shards": shards, "leaderboard": board, "recent": recent, "generated": now}
         s._cache = (now, out); return out
     def me(s, tok):
@@ -171,6 +193,7 @@ def serve(c, host, port):
 if __name__ == "__main__":
     a = argparse.ArgumentParser(); sub = a.add_subparsers(dest="cmd", required=True)
     i = sub.add_parser("init"); i.add_argument("--db", required=True); i.add_argument("--kind", choices=sorted(KINDS), required=True); i.add_argument("--shards", default="0-139", help="positions in tasks/edu_100bt_files.json"); i.add_argument("--span", type=int, default=50); i.add_argument("--rowgroups", type=int, default=726, help="row groups per shard; workers tolerate a range that runs past the end")
+    tr = sub.add_parser("trust", help="mark a volunteer as the operator's trusted machine"); tr.add_argument("--db", required=True); tr.add_argument("--name", required=True)
     v = sub.add_parser("serve"); v.add_argument("--db", required=True); v.add_argument("--results", default="swarm_results"); v.add_argument("--host", default="127.0.0.1"); v.add_argument("--port", type=int, default=8770)
     x = a.parse_args()
     if x.cmd == "init":
@@ -181,5 +204,7 @@ if __name__ == "__main__":
             for st in range(0, x.rowgroups, x.span):
                 c.db.execute("insert into wu(kind, shard, rg_start, rg_end) values(?,?,?,?)", (x.kind, name, st, st + x.span)); n += 1
         c.db.commit(); print("created", n, "units")
+    elif x.cmd == "trust":
+        print(Coord(x.db, os.path.dirname(os.path.abspath(x.db))).trust(x.name))
     else:
         srv = serve(Coord(x.db, x.results), x.host, x.port); print(f"coordinator on {x.host}:{x.port}"); srv.serve_forever()
